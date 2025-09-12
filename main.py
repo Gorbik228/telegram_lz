@@ -96,6 +96,7 @@ async def unknown_message_handler(message: types.Message):
 async def main():
     await dp.start_polling(bot)
 
+print("Бот запущен!")
 
 if __name__ == "__main__":
     asyncio.run(main())

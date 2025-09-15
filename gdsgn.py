@@ -36,7 +36,7 @@ session._connector_init = {'ssl': False}
 bot = Bot(token=secrets['BOT_API_TOKEN'], session=session)
 dp = Dispatcher()
 
-# Кнопки
+
 # Кнопки
 start_kb = ReplyKeyboardMarkup(
     keyboard=[

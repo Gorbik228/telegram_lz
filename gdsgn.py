@@ -5,9 +5,7 @@ from datetime import datetime
 
 import aiohttp
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InputMediaPhoto
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from secret import secrets
 
 # Путь к файлу лога
@@ -31,91 +29,110 @@ def log_function(user: types.User, motion: str, api: str, api_answer: str):
             user.id, username, motion, api, date_str, time_str, api_answer
         ])
 
-bot = Bot(token=secrets["BOT_API_TOKEN"])
+from aiogram.client.session.aiohttp import AiohttpSession
+session = AiohttpSession()
+session._connector_init = {'ssl': False}
+
+bot = Bot(token=secrets['BOT_API_TOKEN'], session=session)
 dp = Dispatcher()
 
-# Кнопка «Старт»
-start_builder = InlineKeyboardBuilder()
-start_builder.button(
-    text="Нажмите Старт, чтобы открыть меню API-запросов",
-    callback_data="start"
+# Кнопки
+# Кнопки
+start_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Старт")]
+    ],
+    resize_keyboard=True
 )
-start_builder.adjust(1)
-kb_start = start_builder.as_markup()
 
-# Главное меню
-menu_builder = InlineKeyboardBuilder()
-menu_builder.button(text="Случайная собака", callback_data="dog")
-menu_builder.button(text="Факт о котах", callback_data="catfact")
-menu_builder.button(text="Случайный пользователь", callback_data="random user")
-menu_builder.adjust(1, 1, 1)
-kb_menu = menu_builder.as_markup()
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Случайная собака")],
+        [KeyboardButton(text="Факт о котах")],
+        [KeyboardButton(text="Случайный пользователь")],
+        [KeyboardButton(text="Назад")]
+    ],
+    resize_keyboard=True
+)
+
 
 @dp.message(lambda m: m.text == "/start")
 async def cmd_start(message: types.Message):
     log_function(message.from_user, motion="Keyboard typing", api="NONE", api_answer="NONE")
     await message.answer(
-        "Добро пожаловать! Нажмите кнопку ниже, чтобы продолжить:",
-        reply_markup=kb_start
+        "Добро пожаловать! Нажмите кнопку «Старт», чтобы открыть меню API-запросов:",
+        reply_markup=start_kb
     )
 
-@dp.callback_query(lambda c: c.data in {"start", "dog", "catfact", "random user"})
-async def process_menu(call: types.CallbackQuery):
-    log_function(call.from_user, motion="Button press", api=call.data, api_answer="")
-    await call.answer()
+@dp.message(lambda m: m.text == "Старт")
+async def on_start_button(message: types.Message):
+    log_function(message.from_user, motion="Button press", api="start", api_answer="")
+    await message.answer(
+        "Выберите один из трёх API-запросов:",
+        reply_markup=menu_kb
+    )
 
-    if call.data == "start":
-        await call.message.edit_text(
-            "Выберите один из трёх API-запросов:",
-            reply_markup=kb_menu
-        )
-        return
-
+@dp.message(lambda m: m.text == "Случайная собака")
+async def random_dog(message: types.Message):
+    log_function(message.from_user, motion="Button press", api="dog", api_answer="")
+    url = "https://dog.ceo/api/breeds/image/random"
     async with aiohttp.ClientSession() as session:
-        if call.data == "dog":
-            url = "https://dog.ceo/api/breeds/image/random"
-            async with session.get(url) as resp:
-                data = await resp.json()
-                if resp.status == 200 and data.get("message"):
-                    dog_url = data["message"]
-                    log_function(call.from_user, motion="Button press", api="dog", api_answer=dog_url)
-                    await call.message.edit_media(
-                        media=InputMediaPhoto(media=dog_url, caption="Случайная собака"),
-                        reply_markup=kb_menu
-                    )
-                    return
-                text = f"Ошибка при получении изображения (HTTP {resp.status})"
+        async with session.get(url) as resp:
+            data = await resp.json()
+            if resp.status == 200 and data.get("message"):
+                dog_url = data["message"]
+                log_function(message.from_user, motion="API", api="dog", api_answer=dog_url)
+                await message.answer_photo(dog_url, caption="Случайная собака")
+            else:
+                error_text = f"Ошибка при получении изображения (HTTP {resp.status})"
+                log_function(message.from_user, motion="API", api="dog", api_answer=error_text)
+                await message.answer(error_text)
 
-        elif call.data == "catfact":
-            url = "https://catfact.ninja/fact"
-            async with session.get(url) as resp:
-                data = await resp.json()
-                if resp.status == 200 and data.get("fact"):
-                    text = f"Факт о котах:\n{data['fact']}"
-                else:
-                    text = "Не удалось получить факт о котах."
+@dp.message(lambda m: m.text == "Факт о котах")
+async def send_cat_fact(message: types.Message):
+    log_function(message.from_user, motion="Button press", api="catfact", api_answer="")
+    url = "https://catfact.ninja/fact"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+            if resp.status == 200 and data.get("fact"):
+                fact = data["fact"]
+                log_function(message.from_user, motion="API", api="catfact", api_answer=fact)
+                await message.answer(f"Факт о котах:\n{fact}")
+            else:
+                error_text = "Не удалось получить факт о котах."
+                log_function(message.from_user, motion="API", api="catfact", api_answer=error_text)
+                await message.answer(error_text)
 
-        else:  # random user
-            url = "https://randomuser.me/api/"
-            async with session.get(url) as resp:
-                data = await resp.json()
-                if resp.status == 200 and data.get("results"):
-                    user_info = data["results"][0]
-                    name = user_info["name"]
-                    full_name = f"{name['title']} {name['first']} {name['last']}"
-                    email = user_info.get("email", "неизвестно")
-                    country = user_info.get("location", {}).get("country", "неизвестно")
-                    text = (
-                        "Случайный пользователь:\n"
-                        f"Имя: {full_name}\n"
-                        f"Email: {email}\n"
-                        f"Страна: {country}"
-                    )
-                else:
-                    text = f"Ошибка при получении случайного пользователя (HTTP {resp.status})"
+@dp.message(lambda m: m.text == "Случайный пользователь")
+async def send_random_user(message: types.Message):
+    log_function(message.from_user, motion="Button press", api="random user", api_answer="")
+    url = "https://randomuser.me/api/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+            if resp.status == 200 and data.get("results"):
+                u = data["results"][0]
+                full_name = f"{u['name']['title']} {u['name']['first']} {u['name']['last']}"
+                email = u.get("email", "неизвестно")
+                country = u.get("location", {}).get("country", "неизвестно")
+                text = (
+                    "Случайный пользователь:\n"
+                    f"Имя: {full_name}\n"
+                    f"Email: {email}\n"
+                    f"Страна: {country}"
+                )
+                log_function(message.from_user, motion="API", api="random user", api_answer=text)
+                await message.answer(text)
+            else:
+                error_text = f"Ошибка при получении случайного пользователя (HTTP {resp.status})"
+                log_function(message.from_user, motion="API", api="random user", api_answer=error_text)
+                await message.answer(error_text)
 
-    log_function(call.from_user, motion="Button press", api=call.data, api_answer=text)
-    await call.message.edit_text(text, reply_markup=kb_menu)
+@dp.message(lambda m: m.text == "Назад")
+async def go_back(message: types.Message):
+    log_function(message.from_user, motion="Button press", api="back", api_answer="")
+    await message.answer("Главное меню:", reply_markup=start_kb)
 
 @dp.message()
 async def unknown_message_handler(message: types.Message):
